@@ -1,5 +1,12 @@
 import { encodeHTML } from "./common/utils.js";
 
+/**
+ * Retrieves stat card labels in the available locales.
+ *
+ * @param {string} name The name of the locale.
+ * @param {string} apostrophe Whether to use apostrophe or not.
+ * @returns {Object} The locales object.
+ */
 const statCardLocales = ({ name, apostrophe }) => {
   const encodedName = encodeHTML(name);
   return {
@@ -30,7 +37,7 @@ const statCardLocales = ({ name, apostrophe }) => {
       sk: `GitHub štatistiky používateľa ${encodedName}`,
       tr: `${encodedName} Hesabının GitHub Yıldızları`,
       pl: `Statystyki GitHub użytkownika ${encodedName}`,
-      uz: `${encodedName}ning Github'dagi statistikasi`,
+      uz: `${encodedName}ning GitHub'dagi statistikasi`,
       vi: `Thống Kê GitHub ${encodedName}`,
       se: `GitHubstatistik för ${encodedName}`,
     },
@@ -354,6 +361,12 @@ const wakatimeCardLocales = {
 
 const availableLocales = Object.keys(repoCardLocales["repocard.archived"]);
 
+/**
+ * Checks whether the locale is available or not.
+ *
+ * @param {string} locale The locale to check.
+ * @returns {boolean} Boolean specifying whether the locale is available or not.
+ */
 function isLocaleAvailable(locale) {
   return availableLocales.includes(locale.toLowerCase());
 }

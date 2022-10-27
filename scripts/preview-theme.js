@@ -4,7 +4,7 @@
 import * as dotenv from "dotenv";
 dotenv.config();
 
-import core, { debug, setFailed } from "@actions/core";
+import { debug, setFailed } from "@actions/core";
 import github from "@actions/github";
 import ColorContrastChecker from "color-contrast-checker";
 import { info } from "console";
@@ -12,11 +12,10 @@ import Hjson from "hjson";
 import snakeCase from "lodash.snakecase";
 import parse from "parse-diff";
 import { inspect } from "util";
+import { isValidHexColor } from "../src/common/utils.js";
 import { themes } from "../themes/index.js";
+import { getGithubToken, getRepoInfo } from "./helpers.js";
 
-// Script variables
-const OWNER = "anuraghazra";
-const REPO = "github-readme-stats";
 const COMMENTER = "github-actions[bot]";
 
 const COMMENT_TITLE = "Automated Theme Preview";
@@ -24,8 +23,8 @@ const THEME_PR_FAIL_TEXT = ":x: Theme PR does not adhere to our guidelines.";
 const THEME_PR_SUCCESS_TEXT =
   ":heavy_check_mark: Theme PR does adhere to our guidelines.";
 const FAIL_TEXT = `
-  \rUnfortunately, your theme PR does not adhere to our [theme guidelines](https://github.com/anuraghazra/github-readme-stats/blob/master/CONTRIBUTING.md#themes-contribution). Please fix the issues below, and we will review your\
-  \r PR again. This pull request will **automatically close in 15 days** if no changes are made. After this time, you must re-open the PR for it to be reviewed.
+  \rUnfortunately, your theme PR contains an error or does not adhere to our [theme guidelines](https://github.com/anuraghazra/github-readme-stats/blob/master/CONTRIBUTING.md#themes-contribution). Please fix the issues below, and we will review your\
+  \r PR again. This pull request will **automatically close in 20 days** if no changes are made. After this time, you must re-open the PR for it to be reviewed.
 `;
 const THEME_CONTRIB_GUIDELINESS = `
   \rHi, thanks for the theme contribution. Please read our theme [contribution guidelines](https://github.com/anuraghazra/github-readme-stats/blob/master/CONTRIBUTING.md#themes-contribution).
@@ -33,34 +32,17 @@ const THEME_CONTRIB_GUIDELINESS = `
 
   \r> Also, note that if this theme is exclusively for your personal use, then instead of adding it to our theme collection, you can use card [customization options](https://github.com/anuraghazra/github-readme-stats#customization).
 `;
-const AVAILABLE_COLOR_PROPS = [
-  "bg_color",
-  "icon_color",
-  "text_color",
-  "title_color",
-];
+const COLOR_PROPS = {
+  title_color: 6,
+  icon_color: 6,
+  text_color: 6,
+  bg_color: 8,
+  border_color: 6,
+};
+const ACCEPTED_COLOR_PROPS = Object.keys(COLOR_PROPS);
+const REQUIRED_COLOR_PROPS = ACCEPTED_COLOR_PROPS.slice(0, 4);
 const INVALID_REVIEW_COMMENT = (commentUrl) =>
   `Some themes are invalid. See the [Automated Theme Preview](${commentUrl}) comment above for more information.`;
-
-/**
- * Retrieve information about the repository that ran the action.
- *
- * @param {Object} context Action context.
- * @returns {Object} Repository information.
- */
-export const getRepoInfo = (ctx) => {
-  try {
-    return {
-      owner: ctx.repo.owner,
-      repo: ctx.repo.repo,
-    };
-  } catch (error) {
-    return {
-      owner: OWNER,
-      repo: REPO,
-    };
-  }
-};
 
 /**
  * Retrieve PR number from the event payload.
@@ -83,19 +65,6 @@ const getPrNumber = () => {
  */
 const getCommenter = () => {
   return process.env.COMMENTER ? process.env.COMMENTER : COMMENTER;
-};
-
-/**
- * Retrieve github token and throw error if it is not found.
- *
- * @returns {string} Github token.
- */
-const getGithubToken = () => {
-  const token = core.getInput("github_token") || process.env.GITHUB_TOKEN;
-  if (!token) {
-    throw Error("Could not find github token");
-  }
-  return token;
 };
 
 /**
@@ -123,7 +92,7 @@ const isPreviewComment = (inputs, comment) => {
  * @param {number} issueNumber Issue number.
  * @param {string} repo Repository name.
  * @param {string} owner Owner of the repository.
- * @returns {Object} The Github comment object.
+ * @returns {Object} The GitHub comment object.
  */
 const findComment = async (octokit, issueNumber, owner, repo, commenter) => {
   const parameters = {
@@ -304,11 +273,11 @@ const parseJSON = (json) => {
     }
   } catch (error) {
     let parsedJson = json
-      .split(/(?:\s*)(}\s*,?)(?:\s*)(?=\s*[a-z_"]+:+)/)
+      .split(/([\s\r\s]*}[\s\r\s]*,[\s\r\s]*)(?=[\w"-]+:)/)
       .filter((x) => typeof x !== "string" || !!x.trim());
     if (parsedJson[0].replace(/\s+/g, "") === "},") {
       parsedJson[0] = "},";
-      if (!/\s*}\s*,?\s*$/.test(parsedJson[0])) {
+      if (!/\s*}\s*,?\s*$/.test(parsedJson[1])) {
         parsedJson.push(parsedJson.shift());
       } else {
         parsedJson.shift();
@@ -317,20 +286,6 @@ const parseJSON = (json) => {
     } else {
       throw error;
     }
-  }
-};
-
-/**
- * Check if string is a valid hex color.
- *
- * @param {string} str String to check.
- * @returns {boolean} Whether the string is a valid hex color.
- */
-const isHexColor = (str, prefix = false) => {
-  if (prefix) {
-    return /^#[a-f0-9]{6}$/i.exec(str);
-  } else {
-    return /^[a-f0-9]{6}$/i.exec(str);
   }
 };
 
@@ -346,7 +301,7 @@ const themeNameAlreadyExists = (name) => {
 /**
  * Main function.
  */
-const run = async () => {
+export const run = async (prNumber) => {
   try {
     const dryRun = process.env.DRY_RUN === "true" || false;
     debug("Retrieve action information from context...");
@@ -357,7 +312,7 @@ const run = async () => {
     `;
     const ccc = new ColorContrastChecker();
     const octokit = github.getOctokit(getGithubToken());
-    const pullRequestId = getPrNumber();
+    const pullRequestId = prNumber ? prNumber : getPrNumber();
     const commenter = getCommenter();
     const { owner, repo } = getRepoInfo(github.context);
     debug(`Owner: ${owner}`);
@@ -431,12 +386,21 @@ const run = async () => {
         warning.push("Theme colors are missing");
         invalidColors = true;
       } else {
-        const missingKeys = AVAILABLE_COLOR_PROPS.filter(
+        const missingKeys = REQUIRED_COLOR_PROPS.filter(
           (x) => !Object.keys(colors).includes(x),
         );
-        if (missingKeys.length > 0) {
+        const extraKeys = Object.keys(colors).filter(
+          (x) => !ACCEPTED_COLOR_PROPS.includes(x),
+        );
+        if (missingKeys.length > 0 || extraKeys.length > 0) {
           for (const missingKey of missingKeys) {
             errors.push(`Theme color properties \`${missingKey}\` are missing`);
+          }
+
+          for (const extraKey of extraKeys) {
+            warnings.push(
+              `Theme color properties \`${extraKey}\` is not supported`,
+            );
           }
           invalidColors = true;
         } else {
@@ -446,7 +410,12 @@ const run = async () => {
                 `Theme color property \`${colorKey}\` should not start with '#'`,
               );
               invalidColors = true;
-            } else if (!isHexColor(colorValue)) {
+            } else if (colorValue.length > COLOR_PROPS[colorKey]) {
+              errors.push(
+                `Theme color property \`${colorKey}\` can not be longer than \`${COLOR_PROPS[colorKey]}\` characters`,
+              );
+              invalidColors = true;
+            } else if (!isValidHexColor(colorValue)) {
               errors.push(
                 `Theme color property \`${colorKey}\` is not a valid hex color: <code>#${colorValue}</code>`,
               );
@@ -476,6 +445,7 @@ const run = async () => {
       const iconColor = colors.icon_color;
       const textColor = colors.text_color;
       const bgColor = colors.bg_color;
+      const borderColor = colors.border_color;
       const url = getGRSLink(colors);
       const colorPairs = {
         title_color: [titleColor, bgColor],
@@ -483,8 +453,10 @@ const run = async () => {
         text_color: [textColor, bgColor],
       };
       Object.keys(colorPairs).forEach((item) => {
-        const color1 = colorPairs[item][0];
-        const color2 = colorPairs[item][1];
+        let color1 = colorPairs[item][0];
+        let color2 = colorPairs[item][1];
+        color1 = color1.length === 4 ? color1.slice(0, 3) : color1.slice(0, 6);
+        color2 = color2.length === 4 ? color2.slice(0, 3) : color2.slice(0, 6);
         if (!ccc.isLevelAA(`#${color1}`, `#${color2}`)) {
           const permalink = getWebAimLink(color1, color2);
           warnings.push(
@@ -503,7 +475,9 @@ const run = async () => {
         
         \r${warnings.map((warning) => `- :warning: ${warning}.\n`).join("")}
 
-        \ntitle_color: <code>#${titleColor}</code> | icon_color: <code>#${iconColor}</code> | text_color: <code>#${textColor}</code> | bg_color: <code>#${bgColor}</code>
+        \ntitle_color: <code>#${titleColor}</code> | icon_color: <code>#${iconColor}</code> | text_color: <code>#${textColor}</code> | bg_color: <code>#${bgColor}</code>${
+        borderColor ? ` | border_color: <code>#${borderColor}</code>` : ""
+      }
 
         \r[Preview Link](${url})
 
@@ -583,6 +557,28 @@ const run = async () => {
       info(`DRY_RUN: Review reason: ${reviewReason}`);
     }
   } catch (error) {
+    debug("Set review state to `REQUEST_CHANGES` and add `invalid` label...");
+    if (!dryRun) {
+      await addReview(
+        octokit,
+        pullRequestId,
+        owner,
+        repo,
+        "REQUEST_CHANGES",
+        error.message,
+      );
+      await addRemoveLabel(
+        octokit,
+        pullRequestId,
+        owner,
+        repo,
+        "invalid",
+        true,
+      );
+    } else {
+      info(`DRY_RUN: Review state: REQUEST_CHANGES`);
+      info(`DRY_RUN: Review reason: ${error.message}`);
+    }
     setFailed(error.message);
   }
 };
