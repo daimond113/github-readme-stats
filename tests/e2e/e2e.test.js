@@ -4,25 +4,26 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-import { describe } from "@jest/globals";
 import axios from "axios";
 import { renderRepoCard } from "../../src/cards/repo-card.js";
 import { renderStatsCard } from "../../src/cards/stats-card.js";
 import { renderTopLanguages } from "../../src/cards/top-languages-card.js";
 import { renderWakatimeCard } from "../../src/cards/wakatime-card.js";
+import { expect, describe, beforeAll, test } from "@jest/globals";
 
 const REPO = "curly-fiesta";
 const USER = "catelinemnemosyne";
 const STATS_DATA = {
   name: "Cateline Mnemosyne",
   totalPRs: 2,
+  totalReviews: 0,
   totalCommits: 8,
   totalIssues: 1,
   totalStars: 1,
   contributedTo: 1,
   rank: {
     level: "C",
-    percentile: 97.89377603631637,
+    percentile: 98.06929469995667,
   },
 };
 
